@@ -1,2 +1,4 @@
-steamlit
+streamlit
+pytz
+requests
 pandas
