@@ -99,77 +99,149 @@ def load_agenda_events(URL):
     return [dict(item) for item in DEFAULT_AGENDA]
 
 
-def save_event_status(URL, event_id):
+def save_event_status(URL, event_id, status="Finalizado"):
     try:
         payload = {
             "tipo_registro": "agenda_status",
             "id": event_id,
-            "status": "Finalizado",
+            "status": status,
         }
         requests.post(URL, json=payload, timeout=5)
     except Exception:
         pass
 
 
+def get_event_status(event, today):
+    status = normalize_status(event.get("status", ""))
+    date_text = event.get("data", "")
+
+    if status == "finalizado":
+        return "Finalizado", "#6c757d", "#e9ecef"
+
+    if not date_text:
+        return "Sem data", "#0d6efd", "#cff4fc"
+
+    try:
+        event_date = datetime.fromisoformat(date_text).date()
+    except ValueError:
+        return "Data inválida", "#fd7e14", "#fff3cd"
+
+    delta = (event_date - today).days
+    if delta < 0:
+        return "Vencido", "#dc3545", "#f8d7da"
+    if delta <= 10:
+        return f"Faltam {delta} dia(s)", "#ffb703", "#fff3cd"
+
+    return f"Ativo ({delta} dias)", "#198754", "#d4edda"
+
+
+def render_event_card(event, today):
+    badge_text, badge_color, background = get_event_status(event, today)
+    status_text = event.get("status", "Aberto")
+    date_text = event.get("data", "-")
+    observacao = event.get("observacao", "-")
+    evento = event.get("evento", "-")
+
+    return f"""
+<div style='background: {background}; padding: 16px; border-radius: 12px; margin-bottom: 12px; border: 1px solid rgba(0,0,0,0.08);'>
+  <div style='display: flex; justify-content: space-between; gap: 16px; align-items: start;'>
+    <div style='flex: 1; min-width: 0;'>
+      <div style='font-size: 17px; font-weight: 700; margin-bottom: 6px;'>{evento}</div>
+      <div style='font-size: 14px; color: #333; margin-bottom: 6px;'>Data: {date_text}</div>
+      <div style='font-size: 13px; color: #444;'>{observacao}</div>
+    </div>
+    <div style='text-align: right; min-width: 130px;'>
+      <div style='display: inline-block; padding: 8px 12px; border-radius: 999px; background: {badge_color}; color: #000; font-weight: 700; font-size: 13px;'>{badge_text}</div>
+      <div style='margin-top: 8px; color: #555; font-size: 13px;'>Status: {status_text}</div>
+    </div>
+  </div>
+</div>
+"""
+
+
+def get_action_label(event):
+    return "Reabrir" if normalize_status(event.get("status", "")) == "finalizado" else "Finalizar"
+
+
+def apply_event_status_change(event, URL):
+    current_status = normalize_status(event.get("status", ""))
+    new_status = "Aberto" if current_status == "finalizado" else "Finalizado"
+    save_event_status(URL, event["id"], new_status)
+    event["status"] = new_status
+    return new_status
+
+
+def render_events_section(events, today, URL, section_key_prefix=""):
+    for event in events:
+        st.markdown(render_event_card(event, today), unsafe_allow_html=True)
+        action_label = get_action_label(event)
+        if st.button(action_label, key=f"{section_key_prefix}agenda_action_{event['id']}"):
+            new_status = apply_event_status_change(event, URL)
+            st.success(f"Evento '{event.get('evento', '')}' atualizado para {new_status}.")
+        st.write("")
+
+
 def render(URL):
     st.title("📅 Agenda")
 
     if st.button("⟳ Recarregar agenda", key="agenda_refresh"):
-        st.session_state.pop("agenda_events", None)
+        pass
 
     agenda_events = load_agenda_events(URL)
-    selected_date = st.date_input("Data", value=datetime.now(), key="agenda_data")
+    today = datetime.now().date()
+    selected_date = st.date_input("Filtrar por data", value=today, key="agenda_data")
     selected_key = selected_date.strftime("%Y-%m-%d")
 
     st.caption(f"Eventos carregados: {len(agenda_events)}")
 
+    overdue_events = [event for event in agenda_events if event.get("data") and datetime.fromisoformat(event["data"]).date() < today and normalize_status(event.get("status")) != "finalizado"]
+    soon_events = [event for event in agenda_events if event.get("data") and 0 <= (datetime.fromisoformat(event["data"]).date() - today).days <= 10 and normalize_status(event.get("status")) != "finalizado"]
+    active_events = [event for event in agenda_events if event.get("data") and (datetime.fromisoformat(event["data"]).date() - today).days > 10 and normalize_status(event.get("status")) != "finalizado"]
+    finished_events = [event for event in agenda_events if normalize_status(event.get("status")) == "finalizado"]
+
+    st.markdown(
+        """
+<div style='display: flex; gap: 12px; flex-wrap: wrap;'>
+  <div style='flex: 1; min-width: 180px; padding: 14px; border-radius: 12px; background: #f8d7da; border: 1px solid #f5c2c7;'>
+    <div style='font-size: 24px; font-weight: 700;'>{}</div>
+    <div style='color: #842029;'>Vencidos</div>
+  </div>
+  <div style='flex: 1; min-width: 180px; padding: 14px; border-radius: 12px; background: #fff3cd; border: 1px solid #ffecb5;'>
+    <div style='font-size: 24px; font-weight: 700;'>{}</div>
+    <div style='color: #664d03;'>Faltam até 10 dias</div>
+  </div>
+  <div style='flex: 1; min-width: 180px; padding: 14px; border-radius: 12px; background: #d4edda; border: 1px solid #c3e6cb;'>
+    <div style='font-size: 24px; font-weight: 700;'>{}</div>
+    <div style='color: #0f5132;'>Ativos</div>
+  </div>
+  <div style='flex: 1; min-width: 180px; padding: 14px; border-radius: 12px; background: #e2e3e5; border: 1px solid #d3d6d8;'>
+    <div style='font-size: 24px; font-weight: 700;'>{}</div>
+    <div style='color: #41464b;'>Finalizados</div>
+  </div>
+</div>
+""".format(len(overdue_events), len(soon_events), len(active_events), len(finished_events)),
+        unsafe_allow_html=True,
+    )
+
+    st.write("---")
+    st.subheader("🔎 Eventos por data")
     filtered_events = [event for event in agenda_events if event.get("data", "") == selected_key]
 
     if filtered_events:
-        st.markdown(f"### 📌 Eventos em {selected_date.strftime('%d/%m/%Y')}")
-        for event in filtered_events:
-            cols = st.columns([3, 1, 5, 2])
-            status_text = event.get("status", "Aberto")
-            status_color = "green" if status_text.lower() == "finalizado" else "orange"
-            cols[0].markdown(f"**{event['evento']}**")
-            cols[1].markdown(
-                f"<span style='color: {status_color}; font-weight: 600'>{status_text}</span>",
-                unsafe_allow_html=True,
-            )
-            cols[2].write(event.get("observacao", ""))
-
-            normalized_status = normalize_status(status_text)
-            if normalized_status != "finalizado":
-                if cols[3].button("Finalizar", key=f"agenda_finish_{event['id']}"):
-                    for stored in agenda_events:
-                        if stored["id"] == event["id"]:
-                            stored["status"] = "Finalizado"
-                            save_event_status(URL, event["id"])
-                            st.success(f"Evento '{stored['evento']}' marcado como finalizado.")
-            else:
-                cols[3].markdown("✅ Finalizado")
+        render_events_section(filtered_events, today, URL, section_key_prefix="filtered_")
     else:
-        st.info("Sem atividades")
+        st.info("Nenhum evento encontrado para essa data.")
 
-    st.divider()
-    st.subheader("📋 Agenda do dia")
-
-    if filtered_events:
-        for event in filtered_events:
-            st.write(f"**{event['evento']}** — {event.get('status', 'Aberto')}")
-            st.write(event.get("observacao", ""))
-            st.markdown("---")
+    st.write("---")
+    st.subheader("📍 Todos os eventos")
+    if agenda_events:
+        render_events_section(sorted(agenda_events, key=lambda item: item.get("data", "")), today, URL, section_key_prefix="all_")
     else:
-        st.write("Sem atividades")
+        st.info("A planilha de agenda está vazia ou não foi possível carregar os dados.")
 
-    texto = f"""AGENDA
+    texto = f"""AGENDA\n\nData filtrada: {selected_date.strftime('%d/%m/%Y')}\n\n{', '.join([event['evento'] for event in filtered_events]) or 'Sem atividades'}\n"""
 
-📆 {selected_date.strftime('%d/%m/%Y')}
-
-{', '.join([event['evento'] for event in filtered_events]) or 'Sem atividades'}
-"""
-
-    st.text_area("Prévia", texto, height=200, key="agenda_preview")
+    st.text_area("Prévia", texto, height=180, key="agenda_preview")
 
     if st.button("📤 Compartilhar Agenda", key="agenda_share"):
         link = f"https://api.whatsapp.com/send?text={urllib.parse.quote(texto)}"
