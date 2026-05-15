@@ -1,5 +1,6 @@
 import streamlit as st
 import requests
+import pytz
 from datetime import datetime
 
 LOCALS = [
@@ -42,8 +43,9 @@ def render(URL, nomes):
     nome = st.selectbox("Responsável", nomes, key="temp_nome")
     local = st.selectbox("Local", LOCALS, key="temp_local")
 
-    data_hora = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-    st.info(data_hora)
+    tz = pytz.timezone("America/Sao_Paulo")
+    data_hora = datetime.now(tz).strftime("%d/%m/%Y %H:%M:%S")
+    st.info(f"Hora local (SP): {data_hora}")
 
     with st.form("form_temp", clear_on_submit=True):
         area = st.selectbox("Área", AREAS, key="temp_area")
@@ -68,16 +70,35 @@ def render(URL, nomes):
 
     st.subheader("📋 Lista")
 
+    if st.session_state.temp:
+        st.markdown(
+            """
+            <div style='display: flex; flex-wrap: wrap; gap: 8px; font-weight: 700; margin-bottom: 8px;'>
+              <div style='min-width: 180px; flex: 1;'>Local</div>
+              <div style='min-width: 140px; flex: 1;'>Área</div>
+              <div style='min-width: 110px; flex: 1;'>Temperatura</div>
+              <div style='min-width: 140px; flex: 1;'>Status</div>
+              <div style='min-width: 140px; flex: 1;'>Responsável</div>
+              <div style='min-width: 80px; flex: 0 0 auto;'>Ação</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
     for i, r in enumerate(st.session_state.temp):
-        col1, col2, col3, col4, col5, col6 = st.columns([2, 2, 2, 2, 2, 1])
+        temperatura_text = moeda(r["temperatura"])
+        row_html = f"""
+        <div style='display: flex; flex-wrap: nowrap; gap: 8px; align-items: center; overflow-x: auto; padding: 14px; border: 1px solid #dde2ea; border-radius: 12px; margin-bottom: 10px; background: #f8f9fa;'>
+          <div style='min-width: 180px; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;'>{r['local']}</div>
+          <div style='min-width: 140px; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;'>{r['area']}</div>
+          <div style='min-width: 110px; flex: 1; white-space: nowrap;'>{temperatura_text} °C</div>
+          <div style='min-width: 140px; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;'>{r['status'] or '-'}</div>
+          <div style='min-width: 140px; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;'>{r['nome']}</div>
+        </div>
+        """
+        st.markdown(row_html, unsafe_allow_html=True)
 
-        col1.write(r["local"])
-        col2.write(r["area"])
-        col3.write(f'{r["temperatura"]} °C')
-        col4.write(r["status"])
-        col5.write(r["nome"])
-
-        if col6.button("❌", key=f"t{i}"):
+        if st.button("❌", key=f"t{i}"):
             st.session_state.temp.pop(i)
             st.rerun()
 
